@@ -21,6 +21,7 @@ contract Wedding {
 
     modifier notEngaged(address fiance) {
         require(engagements[fiance].fiance1 == address(0) && engagements[fiance].fiance2 == address(0), "Fiance is already engaged");
+        //check if previus line is correct also if fiance is not in the engagement dictionary
         _;
     }
 
@@ -29,6 +30,8 @@ contract Wedding {
     }
 
     function engage(address _fiance, uint256 _weddingDate) external notEngaged(msg.sender) notEngaged(_fiance) {
+        //check if is still works if one send before the other because maybe the other result engaged
+        //also add for the other fiance
         engagements[msg.sender] = Couple({
             fiance1: msg.sender,
             fiance2: _fiance,
