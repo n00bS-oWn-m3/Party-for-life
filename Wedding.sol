@@ -3,11 +3,18 @@ pragma solidity ^0.8.21;
 
 contract WeddingContract {
     struct Engagement {
-        address parner1;
+        address partner1;
         address partner2;
         uint256 weddingDate;
         bool isEngaged;
         bool isMarried;
+        GuestList guestList;
+    }
+
+    struct GuestList {
+        address[] guests;
+        bool partner1Confirmed;
+        bool partner2Confirmed;
     }
 
     mapping(address => Engagement) public engagements;
@@ -43,6 +50,20 @@ contract WeddingContract {
         _;
     }
 
+    // Check if both parties confirmed the guestlist
+    modifier guestListConfirmed(address user) {
+        Engagement memory engagement = engagements[user];
+        require(engagement.guestList.partner1Confirmed && engagement.guestList.partner2Confirmed, "Guest list not yet confirmed by both");
+        _;
+    }
+
+    modifier guestListUnconfirmed(address user) {
+        Engagement memory engagement = engagements[user];
+        require(!engagement.guestList.partner1Confirmed || !engagement.guestList.partner2Confirmed, "Guest list already confirmed by both");
+        _;
+    }
+
+
     // Engage two users
     function engage(address p1, address p2, uint256 weddingDate) 
         public 
@@ -52,13 +73,58 @@ contract WeddingContract {
         notAlreadyMarried(p2) 
         validWeddingDate(weddingDate) 
     {
-        engagements[p1] = Engagement(p1, p2, weddingDate, true, false);
-        engagements[p2] = Engagement(p1, p2, weddingDate, true, false);
+        GuestList memory guestList = GuestList({
+            guests: new address[](0),
+            partner1Confirmed: false,
+            partner2Confirmed: false
+        });
+        
+        engagements[p1] = Engagement(p1, p2, weddingDate, true, false, guestList);
+        engagements[p2] = Engagement(p1, p2, weddingDate, true, false, guestList);
     }
 
     function getEngagementDetails(address user) 
         public view isEngaged(user) returns (Engagement memory)
     {
         return engagements[user];
+    }
+
+    // Function to propose a guest list by one of the partners
+    function proposeGuestList(address[] memory guests) 
+        public isEngaged(msg.sender) guestListUnconfirmed(msg.sender) 
+    {
+        Engagement storage engagement = engagements[msg.sender];
+        
+        // Check if the sender is one of the partners, to be sure
+        if (engagement.partner1 == msg.sender || engagement.partner2 == msg.sender) {
+            engagement.guestList.guests = guests;
+
+            // List changed, so reset confirmations
+            engagement.guestList.partner1Confirmed = false;
+            engagement.guestList.partner2Confirmed = false;
+        }
+    }
+
+    // Function for a partner to confirm the guest list
+    function confirmGuestList() 
+        public isEngaged(msg.sender)
+    {
+        Engagement storage engagement = engagements[msg.sender];
+
+        // Check if the sender is one of the partners
+        if (engagement.partner1 == msg.sender) {
+            engagement.guestList.partner1Confirmed = true;
+        } else if (engagement.partner2 == msg.sender) {
+            engagement.guestList.partner2Confirmed = true;
+        }
+    }
+
+    // Function to retrieve the confirmed guest list
+    function getConfirmedGuestList(address user) 
+        public guestListConfirmed(user) view returns (address[] memory) 
+    {
+        Engagement memory engagement = engagements[user];
+
+        return engagement.guestList.guests;
     }
 }
