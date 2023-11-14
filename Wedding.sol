@@ -17,30 +17,42 @@ contract WeddingContract {
         bool partner2Confirmed;
     }
 
-    mapping(address => Engagement) public engagements;
+    mapping(address => address) public preferences;
 
-    // Modifiers
+    mapping(address => bytes32) public userToKey;
+    mapping(bytes32 => Engagement) public engagements;    
+
+    // Generate a unique key for the engagement mapping
+    function generateEngagementKey(address p1, address p2)
+        private pure returns (bytes32)
+    {
+        address first = p1 < p2 ? p1 : p2;
+        address second = p1 > p2 ? p1 : p2;
+        return keccak256(abi.encodePacked(first, second));
+    }
+
+    //////// Modifiers ////////
     // Check if user is not yet engaged
     modifier notAlreadyEngaged(address user) {
-        require(!engagements[user].isEngaged, "User is already engaged");
+        require(!engagements[userToKey[user]].isEngaged, "User is already engaged");
         _;
     }
 
     // Check if a user is already engaged
     modifier isEngaged(address user) {
-        require(engagements[user].isEngaged, "User is not yet engaged");
+        require(engagements[userToKey[user]].isEngaged, "User is not yet engaged");
         _;
     }
 
     // Check if user is not yet married
     modifier notAlreadyMarried(address user) {
-        require(!engagements[user].isMarried, "User is already married");
+        require(!engagements[userToKey[user]].isMarried, "User is already married");
         _;
     }
 
     // Check if a user is already engaged
     modifier isMarried(address user) {
-        require(engagements[user].isMarried, "User is not yet married");
+        require(engagements[userToKey[user]].isMarried, "User is not yet married");
         _;
     }
 
@@ -52,51 +64,127 @@ contract WeddingContract {
 
     // Check if both parties confirmed the guestlist
     modifier guestListConfirmed(address user) {
-        Engagement memory engagement = engagements[user];
+        Engagement memory engagement = engagements[userToKey[user]];
         require(engagement.guestList.partner1Confirmed && engagement.guestList.partner2Confirmed, "Guest list not yet confirmed by both");
         _;
     }
 
+    // Check if one of the parties hasn't confirmed the guestlist yet
     modifier guestListUnconfirmed(address user) {
-        Engagement memory engagement = engagements[user];
+        Engagement memory engagement = engagements[userToKey[user]];
         require(!engagement.guestList.partner1Confirmed || !engagement.guestList.partner2Confirmed, "Guest list already confirmed by both");
         _;
     }
 
+    // Check if the current time is before the wedding day
+    modifier beforeWeddingDay(address user) {
+        Engagement memory engagement = engagements[userToKey[user]];
+        uint256 startOfWeddingDay = engagement.weddingDate - (engagement.weddingDate % 1 days);
 
+        require(
+            block.timestamp <= startOfWeddingDay,
+            "Action not allowed after the start of the wedding day"
+        );
+        _;
+    }
+
+    // Check if the current time is during the wedding day
+    modifier duringWeddingDay(address user) {
+        Engagement memory engagement = engagements[userToKey[user]];
+        
+        uint256  startOfWeddingDay = engagement.weddingDate - (engagement.weddingDate % 1 days);
+        uint256 endOfWeddingDay = startOfWeddingDay + 1 days;
+
+        require(
+            block.timestamp >= startOfWeddingDay && block.timestamp < endOfWeddingDay,
+            "Action is only allowed during the wedding day"
+        );
+
+        _;
+    }
+
+    //////// 1. Engagement ////////
     // Engage two users
-    function engage(address p1, address p2, uint256 weddingDate) 
+    function engage(address partner, uint256 weddingDate) 
         public 
-        notAlreadyEngaged(p1) 
-        notAlreadyEngaged(p2) 
-        notAlreadyMarried(p1) 
-        notAlreadyMarried(p2) 
+        notAlreadyEngaged(msg.sender) 
+        notAlreadyEngaged(partner) 
+        notAlreadyMarried(msg.sender) 
+        notAlreadyMarried(partner) 
         validWeddingDate(weddingDate) 
     {
-        GuestList memory guestList = GuestList({
-            guests: new address[](0),
-            partner1Confirmed: false,
-            partner2Confirmed: false
-        });
-        
-        engagements[p1] = Engagement(p1, p2, weddingDate, true, false, guestList);
-        engagements[p2] = Engagement(p1, p2, weddingDate, true, false, guestList);
+        require(msg.sender != partner, "You can't engage yourself");
+
+        // Set my engagement-preference to my partner
+        preferences[msg.sender] = partner;
+
+        // Check if my partner also has me as an engagement-preference
+        // if so, we officially get engaged
+        if (preferences[partner] == msg.sender) {
+            // Generate the common key
+            bytes32 key = generateEngagementKey(msg.sender, partner);
+            userToKey[msg.sender] = key;
+            userToKey[partner] = key;
+            
+            engagements[key] = Engagement({
+                partner1: msg.sender, 
+                partner2: partner, 
+                weddingDate: weddingDate,
+                isEngaged: true,
+                isMarried: false, 
+                guestList: GuestList({
+                    guests: new address[](0),
+                    partner1Confirmed: false,
+                    partner2Confirmed: false
+                })
+            });
+
+            // Set preferences to 0, as we'll use this later for the marriage voting
+            preferences[msg.sender] = address(0);
+            preferences[partner] = address(0);
+        }
     }
 
-    function getEngagementDetails(address user) 
-        public view isEngaged(user) returns (Engagement memory)
+    // Change the wedding date of your engagement
+    function changeWeddingDate(uint256 weddingDate)
+        public
+        notAlreadyEngaged(msg.sender)
     {
-        return engagements[user];
+        Engagement storage engagement = engagements[userToKey[msg.sender]];
+        // Don't change if not necesarry
+        if (engagement.weddingDate != weddingDate) {
+            engagement.weddingDate = weddingDate;
+        }
+    }
+    
+    // Function mainly for debugging purposes
+    function getEngagementDetails(address user) 
+        public isEngaged(user) view returns (Engagement memory)
+    {
+        bytes32 key = userToKey[user];
+        return engagements[key];
     }
 
+    //////// 2. Participations ////////
     // Function to propose a guest list by one of the partners
     function proposeGuestList(address[] memory guests) 
         public isEngaged(msg.sender) guestListUnconfirmed(msg.sender) 
     {
-        Engagement storage engagement = engagements[msg.sender];
-        
+        Engagement storage engagement = engagements[userToKey[msg.sender]];
+
         // Check if the sender is one of the partners, to be sure
         if (engagement.partner1 == msg.sender || engagement.partner2 == msg.sender) {
+            // Make sure that both partners are not in the guest list
+            bool isInGuestList = false;
+            for (uint i = 0; i < guests.length; i++) {
+                if (guests[i] == engagement.partner1 || guests[i] == engagement.partner2) {
+                    isInGuestList = true;
+                    break;
+                }
+            }
+
+            require(!isInGuestList, "One of the partners is in the guest list");
+
             engagement.guestList.guests = guests;
 
             // List changed, so reset confirmations
@@ -109,7 +197,7 @@ contract WeddingContract {
     function confirmGuestList() 
         public isEngaged(msg.sender)
     {
-        Engagement storage engagement = engagements[msg.sender];
+        Engagement storage engagement = engagements[userToKey[msg.sender]];
 
         // Check if the sender is one of the partners
         if (engagement.partner1 == msg.sender) {
@@ -123,8 +211,63 @@ contract WeddingContract {
     function getConfirmedGuestList(address user) 
         public guestListConfirmed(user) view returns (address[] memory) 
     {
-        Engagement memory engagement = engagements[user];
+        Engagement memory engagement = engagements[userToKey[user]];
 
         return engagement.guestList.guests;
+    }
+
+    //////// 3. Revoke engagement ////////
+    // Function to revoke the engagement
+    function revokeEngagement() 
+        public isEngaged(msg.sender) beforeWeddingDay(msg.sender)
+    {
+        bytes32 key = userToKey[msg.sender];
+        Engagement storage engagement = engagements[key];
+
+        // Check if the sender is one of the partners
+        require(
+            engagement.partner1 == msg.sender || engagement.partner2 == msg.sender,
+            "Caller is not part of this engagement"
+        );
+        
+         // Remove key from userToKey
+        userToKey[engagement.partner1] = bytes32(0);
+        userToKey[engagement.partner2] = bytes32(0);
+
+        // Revoke the wedding
+        engagement.partner1 = address(0);
+        engagement.partner2 = address(0);
+        engagement.weddingDate = 0;
+        engagement.isEngaged = false;
+        engagement.isMarried = false; // Should be like this, just to be sure
+        engagement.guestList.partner1Confirmed = false;
+        engagement.guestList.partner2Confirmed = false;
+
+        // Reset guest list
+        delete engagement.guestList.guests;
+    }
+
+    //////// 4. Wedding ////////
+    function getMarried(address partner)
+        public 
+        isEngaged(msg.sender) 
+        isEngaged(partner)
+        notAlreadyMarried(msg.sender)
+        notAlreadyMarried(partner)
+        duringWeddingDay(msg.sender)
+    {
+        // "Say yes" to my partner
+        preferences[msg.sender] = partner;
+
+        // If my partner already said "yes", we get married
+        if (preferences[partner] == msg.sender) {
+            Engagement storage engagement = engagements[userToKey[msg.sender]];
+            engagement.isMarried = true;
+            // TODO do we want isEngaged to remain true??
+
+            // Reset preferences in case we need it later
+            preferences[msg.sender] = address(0);
+            preferences[partner] = address(0);
+        }
     }
 }
