@@ -11,7 +11,8 @@ contract WeddingContract {
         bool isEngaged;
         bool isMarried;
         GuestList guestList;
-        uint256 certificateId;
+        uint256 certificateIdP1;
+        uint256 certificateIdP2;
     }
 
     struct GuestList {
@@ -26,7 +27,7 @@ contract WeddingContract {
     mapping(bytes32 => Engagement) public engagements;    
 
     WeddingCertificate private weddingCertificate;
-    uint256 private nextCertificateId = 1;
+    uint256 private nextCertificateId = 1; // TODO mutex lock
 
     constructor() {
         weddingCertificate = new WeddingCertificate();
@@ -167,7 +168,8 @@ contract WeddingContract {
                     partner1Confirmed: false,
                     partner2Confirmed: false
                 }),
-                certificateId: 0
+                certificateIdP1: 0,
+                certificateIdP2: 0
             });
 
             // Set preferences to 0, as we'll use this later for the marriage voting
@@ -276,7 +278,6 @@ contract WeddingContract {
         notAlreadyMarried(msg.sender)
         notAlreadyMarried(partner)
         duringWeddingDay(msg.sender)
-        // TODO does the guest list have to be confirmed before getting married??
     {
         // Check that you're trying to marry the person you're engaged with
         Engagement memory check_engagement = engagements[userToKey[msg.sender]];
@@ -293,25 +294,21 @@ contract WeddingContract {
         if (preferences[partner] == msg.sender) {
             Engagement storage engagement = engagements[userToKey[msg.sender]];
             engagement.isMarried = true;
-            // TODO do we want isEngaged to remain true??
 
             // Reset preferences in case we need it later
             preferences[msg.sender] = address(0);
             preferences[partner] = address(0);
 
             // Give both a WeddingCertificate
-            // TODO do we want both to get one or one shared that's linked to the WeddingContract??
-
-            // both:
-            uint256 certificateId = nextCertificateId++;
-            weddingCertificate.mintCertificate(msg.sender, certificateId);
-            weddingCertificate.mintCertificate(partner, certificateId);
-
-            // one shared:
-            weddingCertificate.mintCertificate(address(this), certificateId);
+            uint256 certificateId1 = nextCertificateId++;
+            uint256 certificateId2 = nextCertificateId++;
+    
+            weddingCertificate.mintCertificate(msg.sender, certificateId1);
+            weddingCertificate.mintCertificate(partner, certificateId2);
 
             // store certificateId
-            engagement.certificateId = certificateId;
+            engagement.certificateIdP1 = certificateId1;
+            engagement.certificateIdP2 = certificateId2;
         }
     }
 
@@ -328,8 +325,9 @@ contract WeddingContract {
             require(engagement.partner1 == partner, "You have to be married to the person you want to divorce");
         }
 
-        // Burn certificate
-        weddingCertificate.burnCertificate(engagement.certificateId);
+        // Burn both certificates
+        weddingCertificate.burnCertificate(engagement.certificateIdP1);
+        weddingCertificate.burnCertificate(engagement.certificateIdP2);
 
         // Cleanup
         cleanupEngagementObject(engagement);
