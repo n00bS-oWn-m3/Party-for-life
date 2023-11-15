@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+import "WeddingCertificate.sol";
+
 contract WeddingContract {
     struct Engagement {
         address partner1;
@@ -9,6 +11,7 @@ contract WeddingContract {
         bool isEngaged;
         bool isMarried;
         GuestList guestList;
+        uint256 certificateId;
     }
 
     struct GuestList {
@@ -22,6 +25,13 @@ contract WeddingContract {
     mapping(address => bytes32) public userToKey;
     mapping(bytes32 => Engagement) public engagements;    
 
+    WeddingCertificate private weddingCertificate;
+    uint256 private nextCertificateId = 1;
+
+    constructor() {
+        weddingCertificate = new WeddingCertificate();
+    }
+
     // Generate a unique key for the engagement mapping
     function generateEngagementKey(address p1, address p2)
         private pure returns (bytes32)
@@ -29,6 +39,26 @@ contract WeddingContract {
         address first = p1 < p2 ? p1 : p2;
         address second = p1 > p2 ? p1 : p2;
         return keccak256(abi.encodePacked(first, second));
+    }
+
+    function cleanupEngagementObject(Engagement storage engagement)
+        private
+    {
+        // Remove key from userToKey
+        userToKey[engagement.partner1] = bytes32(0);
+        userToKey[engagement.partner2] = bytes32(0);
+
+        // Revoke the wedding
+        engagement.partner1 = address(0);
+        engagement.partner2 = address(0);
+        engagement.weddingDate = 0;
+        engagement.isEngaged = false;
+        engagement.isMarried = false;
+        engagement.guestList.partner1Confirmed = false;
+        engagement.guestList.partner2Confirmed = false;
+
+        // Reset guest list
+        delete engagement.guestList.guests;
     }
 
     //////// Modifiers ////////
@@ -136,7 +166,8 @@ contract WeddingContract {
                     guests: new address[](0),
                     partner1Confirmed: false,
                     partner2Confirmed: false
-                })
+                }),
+                certificateId: 0
             });
 
             // Set preferences to 0, as we'll use this later for the marriage voting
@@ -219,7 +250,10 @@ contract WeddingContract {
     //////// 3. Revoke engagement ////////
     // Function to revoke the engagement
     function revokeEngagement() 
-        public isEngaged(msg.sender) beforeWeddingDay(msg.sender)
+        public 
+        isEngaged(msg.sender) 
+        beforeWeddingDay(msg.sender) 
+        notAlreadyMarried(msg.sender)
     {
         bytes32 key = userToKey[msg.sender];
         Engagement storage engagement = engagements[key];
@@ -230,32 +264,28 @@ contract WeddingContract {
             "Caller is not part of this engagement"
         );
         
-         // Remove key from userToKey
-        userToKey[engagement.partner1] = bytes32(0);
-        userToKey[engagement.partner2] = bytes32(0);
-
-        // Revoke the wedding
-        engagement.partner1 = address(0);
-        engagement.partner2 = address(0);
-        engagement.weddingDate = 0;
-        engagement.isEngaged = false;
-        engagement.isMarried = false; // Should be like this, just to be sure
-        engagement.guestList.partner1Confirmed = false;
-        engagement.guestList.partner2Confirmed = false;
-
-        // Reset guest list
-        delete engagement.guestList.guests;
+        // Cleanup
+        cleanupEngagementObject(engagement);
     }
 
     //////// 4. Wedding ////////
-    function getMarried(address partner)
+    function marry(address partner)
         public 
         isEngaged(msg.sender) 
         isEngaged(partner)
         notAlreadyMarried(msg.sender)
         notAlreadyMarried(partner)
         duringWeddingDay(msg.sender)
+        // TODO does the guest list have to be confirmed before getting married??
     {
+        // Check that you're trying to marry the person you're engaged with
+        Engagement memory check_engagement = engagements[userToKey[msg.sender]];
+        if (check_engagement.partner1 == msg.sender) {
+            require(check_engagement.partner2 == partner, "You have to be engaged to the person you want to marry");
+        } else {
+            require(check_engagement.partner1 == partner, "You have to be engaged to the person you want to marry");
+        }
+
         // "Say yes" to my partner
         preferences[msg.sender] = partner;
 
@@ -268,6 +298,40 @@ contract WeddingContract {
             // Reset preferences in case we need it later
             preferences[msg.sender] = address(0);
             preferences[partner] = address(0);
+
+            // Give both a WeddingCertificate
+            // TODO do we want both to get one or one shared that's linked to the WeddingContract??
+
+            // both:
+            uint256 certificateId = nextCertificateId++;
+            weddingCertificate.mintCertificate(msg.sender, certificateId);
+            weddingCertificate.mintCertificate(partner, certificateId);
+
+            // one shared:
+            weddingCertificate.mintCertificate(address(this), certificateId);
+
+            // store certificateId
+            engagement.certificateId = certificateId;
         }
+    }
+
+    function divorce(address partner)
+        public
+        isMarried(msg.sender)
+        isMarried(partner)
+    {
+        // Check that you're trying to marry the person you're engaged with
+        Engagement storage engagement = engagements[userToKey[msg.sender]];
+        if (engagement.partner1 == msg.sender) {
+            require(engagement.partner2 == partner, "You have to be married to the person you want to divorce");
+        } else {
+            require(engagement.partner1 == partner, "You have to be married to the person you want to divorce");
+        }
+
+        // Burn certificate
+        weddingCertificate.burnCertificate(engagement.certificateId);
+
+        // Cleanup
+        cleanupEngagementObject(engagement);
     }
 }
