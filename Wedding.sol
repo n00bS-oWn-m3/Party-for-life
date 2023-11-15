@@ -13,6 +13,16 @@ contract WeddingContract {
         GuestList guestList;
         uint256 certificateIdP1;
         uint256 certificateIdP2;
+        bool divorceVote1;
+        bool divorceVote2;
+        bool divorceVote3;
+    }
+
+    struct SensitiveInformation {
+        GuestList guestList;
+        string phoneNumber1;
+        string phoneNumber2;
+        // etc.
     }
 
     struct GuestList {
@@ -23,11 +33,21 @@ contract WeddingContract {
 
     mapping(address => address) public preferences;
 
+    //mapping(address => string) public publicKeys;
+    //mapping(address => string) private privateKeys;
+
     mapping(address => bytes32) public userToKey;
     mapping(bytes32 => Engagement) public engagements;    
 
     WeddingCertificate private weddingCertificate;
     uint256 private nextCertificateId = 1; // TODO mutex lock
+
+    address[] private authorizedAddresses = [
+        0xdD870fA1b7C4700F2BD7f44238821C26f7392148,
+        0x583031D1113aD414F02576BD6afaBfb302140225,
+        0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB,
+        0x14723A09ACff6D2A60DcdF7aA4AFf308FDDC160C
+    ];
 
     constructor() {
         weddingCertificate = new WeddingCertificate();
@@ -169,7 +189,10 @@ contract WeddingContract {
                     partner2Confirmed: false
                 }),
                 certificateIdP1: 0,
-                certificateIdP2: 0
+                certificateIdP2: 0,
+                divorceVote1: false,
+                divorceVote2: false,
+                divorceVote3: false
             });
 
             // Set preferences to 0, as we'll use this later for the marriage voting
@@ -295,6 +318,15 @@ contract WeddingContract {
             Engagement storage engagement = engagements[userToKey[msg.sender]];
             engagement.isMarried = true;
 
+            // If the guest list was unconfirmed, we set it to empty (don't store it)
+            if (!engagement.guestList.partner1Confirmed || !engagement.guestList.partner2Confirmed) {
+                engagement.guestList = GuestList({
+                    guests: new address[](0),
+                    partner1Confirmed: true,
+                    partner2Confirmed: true
+                });
+            }
+
             // Reset preferences in case we need it later
             preferences[msg.sender] = address(0);
             preferences[partner] = address(0);
@@ -314,22 +346,42 @@ contract WeddingContract {
 
     function divorce(address partner)
         public
-        isMarried(msg.sender)
         isMarried(partner)
     {
-        // Check that you're trying to marry the person you're engaged with
-        Engagement storage engagement = engagements[userToKey[msg.sender]];
-        if (engagement.partner1 == msg.sender) {
-            require(engagement.partner2 == partner, "You have to be married to the person you want to divorce");
-        } else {
-            require(engagement.partner1 == partner, "You have to be married to the person you want to divorce");
+        // Check if it's an authorized account
+        bool isAuthorizedAddress = false;
+        for (uint i = 0; i < authorizedAddresses.length; i++) {
+            if (authorizedAddresses[i] == msg.sender) {
+                isAuthorizedAddress = true;
+                break;
+            }
         }
 
-        // Burn both certificates
-        weddingCertificate.burnCertificate(engagement.certificateIdP1);
-        weddingCertificate.burnCertificate(engagement.certificateIdP2);
+        // Check that you're trying to marry the person you're engaged with
+        Engagement storage engagement = engagements[userToKey[partner]];
+        if (engagement.partner1 == msg.sender) {
+            require(engagement.partner2 == partner, "You have to be married to the person you want to divorce");
+            engagement.divorceVote1 = true;
+        } else if (engagement.partner2 == msg.sender) {
+            require(engagement.partner1 == partner, "You have to be married to the person you want to divorce");
+            engagement.divorceVote2 = true;
+        } else if (isAuthorizedAddress) {
+            engagement.divorceVote3 = true;
+        }
 
-        // Cleanup
-        cleanupEngagementObject(engagement);
+        // Count number of divorce votes
+        uint count = 0;
+        if (engagement.divorceVote1) count++;
+        if (engagement.divorceVote2) count++;
+        if (engagement.divorceVote3) count++;
+
+        if (count >= 2) {
+            // Burn both certificates
+            weddingCertificate.burnCertificate(engagement.certificateIdP1);
+            weddingCertificate.burnCertificate(engagement.certificateIdP2);
+
+            // Cleanup
+            cleanupEngagementObject(engagement);
+        }
     }
 }
