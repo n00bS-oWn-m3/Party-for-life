@@ -4,6 +4,8 @@ pragma solidity ^0.8.21;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 contract WeddingCertificate is ERC721 {
+
+
     constructor() ERC721("WeddingCertificate", "WEDCERT") {}
 
     function mintCertificate(address to, uint256 tokenId) public
@@ -18,15 +20,21 @@ contract WeddingCertificate is ERC721 {
         // Clean up information
     }
 
-    // Override to prevent transferring tokens (make it an NTT)
-    function _transferCertificate(
-        address from,
-        address to,
-        uint256 tokenId
-    ) 
-        internal pure 
-    {
-        revert("WeddingCertificate: transfer not allowed");
+    // Override transfer functions to disable it
+    function _safeTransfer(address from, address to, uint256 tokenId, bytes memory data) internal pure override {
+        revert("Transfer of WeddingCertificates not allowed");
+    }
+
+    function _transfer(address from, address to, uint256 tokenId) internal pure override {
+        revert("Transfer of WeddingCertificates not allowed");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public pure override {
+        revert("Transfer of WeddingCertificates not allowed");
+    }
+
+    function transferFrom(address from, address to, uint256 tokenId) public pure override {
+        revert("Transfer of WeddingCertificates not allowed");
     }
 }
 

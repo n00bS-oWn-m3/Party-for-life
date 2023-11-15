@@ -222,6 +222,8 @@ contract WeddingContract {
     }
 
     //////// 2. Participations ////////
+    // TODO do we actually need to send out participations after the list is confirmed??
+    // |-> maybe in the form of an NFT??
     // Function to propose a guest list by one of the partners
     function proposeGuestList(address[] memory guests) 
         public isEngaged(msg.sender) guestListUnconfirmed(msg.sender) 
@@ -294,6 +296,8 @@ contract WeddingContract {
     }
 
     //////// 4. Wedding ////////
+    // TODO: What if they haven't said yes on the wedding date ??
+    // |-> Do we need to discard the wedding somehow (clear the engagement)??
     function marry(address partner)
         public 
         isEngaged(msg.sender) 
