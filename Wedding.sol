@@ -27,6 +27,7 @@ contract WeddingContract {
 
     struct GuestList {
         address[] guests;
+        bool[] votes;
         bool partner1Confirmed;
         bool partner2Confirmed;
     }
@@ -185,6 +186,7 @@ contract WeddingContract {
                 isMarried: false, 
                 guestList: GuestList({
                     guests: new address[](0),
+                    votes: new bool[](0),
                     partner1Confirmed: false,
                     partner2Confirmed: false
                 }),
@@ -244,6 +246,7 @@ contract WeddingContract {
             require(!isInGuestList, "One of the partners is in the guest list");
 
             engagement.guestList.guests = guests;
+            engagement.guestList.votes = new bool[](guests.length);
 
             // List changed, so reset confirmations
             engagement.guestList.partner1Confirmed = false;
@@ -324,11 +327,7 @@ contract WeddingContract {
 
             // If the guest list was unconfirmed, we set it to empty (don't store it)
             if (!engagement.guestList.partner1Confirmed || !engagement.guestList.partner2Confirmed) {
-                engagement.guestList = GuestList({
-                    guests: new address[](0),
-                    partner1Confirmed: true,
-                    partner2Confirmed: true
-                });
+                delete engagement.guestList;
             }
 
             // Reset preferences in case we need it later
@@ -385,6 +384,38 @@ contract WeddingContract {
             weddingCertificate.burnCertificate(engagement.certificateIdP2);
 
             // Cleanup
+            cleanupEngagementObject(engagement);
+        }
+    }
+
+    //////// 5. Voting ////////
+    function voteAgainstWedding(address partner)
+        public
+        isEngaged(partner)
+        notAlreadyMarried(partner)
+        duringWeddingDay(partner)
+        guestListConfirmed(partner)
+    {
+        Engagement storage engagement = engagements[userToKey[partner]];
+        
+        uint voteCount = 0;
+        // Check if the you're part of the confirmed guest list 
+        // and count votes at the same time
+        for (uint i = 0; i < engagement.guestList.guests.length; i++) 
+        {
+            // guest, so cast vote
+            if (engagement.guestList.guests[i] == msg.sender) {
+                engagement.guestList.votes[i] = true;
+            }
+            // count vote
+            if (engagement.guestList.votes[i]) {
+                voteCount++;
+            }
+        }
+
+        // If more than half vote in favor, disband engagement
+        // (not the marriage as they didn't get married yet)
+        if (voteCount > engagement.guestList.guests.length / 2) {
             cleanupEngagementObject(engagement);
         }
     }
