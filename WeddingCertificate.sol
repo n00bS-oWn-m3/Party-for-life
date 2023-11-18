@@ -5,18 +5,31 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 contract WeddingCertificate is ERC721 {
 
+    struct CertificateDetails {
+        address partner1;
+        address partner2;
+        uint256 weddingDate;
+    }
+
+    mapping(uint256 => CertificateDetails) public certificateDetails;
 
     constructor() ERC721("WeddingCertificate", "WEDCERT") {}
 
-    function mintCertificate(address to, uint256 tokenId) public
+    function mintCertificate(address to, uint256 tokenId, address partner1, address partner2, uint256 weddingDate) 
+        public
     {
-        // In case I need to store more information, do it here
-
         _mint(to, tokenId);
+
+        certificateDetails[tokenId] = CertificateDetails({
+            partner1: partner1,
+            partner2: partner2,
+            weddingDate: weddingDate
+        });
     }
 
     function burnCertificate(uint256 tokenId) public {
         _burn(tokenId);
+        delete certificateDetails[tokenId];
         // Clean up information
     }
 

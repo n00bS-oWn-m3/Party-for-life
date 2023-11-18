@@ -18,13 +18,6 @@ contract WeddingContract {
         bool divorceVote3;
     }
 
-    struct SensitiveInformation {
-        GuestList guestList;
-        string phoneNumber1;
-        string phoneNumber2;
-        // etc.
-    }
-
     struct GuestList {
         address[] guests;
         bool[] votes;
@@ -32,16 +25,13 @@ contract WeddingContract {
         bool partner2Confirmed;
     }
 
-    mapping(address => address) public preferences;
+    mapping(address => address) private preferences;
 
-    //mapping(address => string) public publicKeys;
-    //mapping(address => string) private privateKeys;
-
-    mapping(address => bytes32) public userToKey;
-    mapping(bytes32 => Engagement) public engagements;    
+    mapping(address => bytes32) private userToKey;
+    mapping(bytes32 => Engagement) private engagements;    
 
     WeddingCertificate private weddingCertificate;
-    uint256 private nextCertificateId = 1; // TODO mutex lock
+    uint256 private nextCertificateId = 1;
 
     address[] private authorizedAddresses = [
         0xdD870fA1b7C4700F2BD7f44238821C26f7392148,
@@ -63,6 +53,12 @@ contract WeddingContract {
         return keccak256(abi.encodePacked(first, second));
     }
 
+    function encrypt(string memory data) 
+        private pure returns (string memory) 
+    {
+        return data;
+    }
+
     function cleanupEngagementObject(Engagement storage engagement)
         private
     {
@@ -76,11 +72,9 @@ contract WeddingContract {
         engagement.weddingDate = 0;
         engagement.isEngaged = false;
         engagement.isMarried = false;
-        engagement.guestList.partner1Confirmed = false;
-        engagement.guestList.partner2Confirmed = false;
 
         // Reset guest list
-        delete engagement.guestList.guests;
+        delete engagement.guestList;
     }
 
     //////// Modifiers ////////
@@ -206,7 +200,7 @@ contract WeddingContract {
     // Change the wedding date of your engagement
     function changeWeddingDate(uint256 weddingDate)
         public
-        notAlreadyEngaged(msg.sender)
+        notAlreadyMarried(msg.sender)
     {
         Engagement storage engagement = engagements[userToKey[msg.sender]];
         // Don't change if not necesarry
@@ -224,8 +218,6 @@ contract WeddingContract {
     }
 
     //////// 2. Participations ////////
-    // TODO do we actually need to send out participations after the list is confirmed??
-    // |-> maybe in the form of an NFT??
     // Function to propose a guest list by one of the partners
     function proposeGuestList(address[] memory guests) 
         public isEngaged(msg.sender) guestListUnconfirmed(msg.sender) 
@@ -251,6 +243,9 @@ contract WeddingContract {
             // List changed, so reset confirmations
             engagement.guestList.partner1Confirmed = false;
             engagement.guestList.partner2Confirmed = false;
+
+            // Confirm your own proposed guest list
+            confirmGuestList();
         }
     }
 
@@ -285,8 +280,7 @@ contract WeddingContract {
         beforeWeddingDay(msg.sender) 
         notAlreadyMarried(msg.sender)
     {
-        bytes32 key = userToKey[msg.sender];
-        Engagement storage engagement = engagements[key];
+        Engagement storage engagement = engagements[userToKey[msg.sender]];
 
         // Check if the sender is one of the partners
         require(
@@ -301,20 +295,19 @@ contract WeddingContract {
     //////// 4. Wedding ////////
     // TODO: What if they haven't said yes on the wedding date ??
     // |-> Do we need to discard the wedding somehow (clear the engagement)??
-    function marry(address partner)
+    function marry()
         public 
         isEngaged(msg.sender) 
-        isEngaged(partner)
         notAlreadyMarried(msg.sender)
-        notAlreadyMarried(partner)
         duringWeddingDay(msg.sender)
     {
         // Check that you're trying to marry the person you're engaged with
         Engagement memory check_engagement = engagements[userToKey[msg.sender]];
+        address partner;
         if (check_engagement.partner1 == msg.sender) {
-            require(check_engagement.partner2 == partner, "You have to be engaged to the person you want to marry");
+            partner = check_engagement.partner2;
         } else {
-            require(check_engagement.partner1 == partner, "You have to be engaged to the person you want to marry");
+            partner = check_engagement.partner1;
         }
 
         // "Say yes" to my partner
@@ -338,8 +331,20 @@ contract WeddingContract {
             uint256 certificateId1 = nextCertificateId++;
             uint256 certificateId2 = nextCertificateId++;
     
-            weddingCertificate.mintCertificate(msg.sender, certificateId1);
-            weddingCertificate.mintCertificate(partner, certificateId2);
+            weddingCertificate.mintCertificate(
+                msg.sender, 
+                certificateId1,
+                engagement.partner1,
+                engagement.partner2, 
+                engagement.weddingDate
+            );
+            weddingCertificate.mintCertificate(
+                partner, 
+                certificateId2,
+                engagement.partner1,
+                engagement.partner2, 
+                engagement.weddingDate
+            );
 
             // store certificateId
             engagement.certificateIdP1 = certificateId1;
