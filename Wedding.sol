@@ -4,35 +4,46 @@ pragma solidity ^0.8.21;
 import "WeddingCertificate.sol";
 
 contract WeddingContract {
+    // Store everything we need to know about the engagement
     struct Engagement {
         address partner1;
         address partner2;
-        uint256 weddingDate;
+        uint256 weddingDate; // unix timestamp
         bool isEngaged;
-        bool isMarried;
+        bool isMarried; // once married, keep the same object but set this bool
         GuestList guestList;
-        uint256 certificateIdP1;
-        uint256 certificateIdP2;
-        bool divorceVote1;
+        uint256 certificateIdP1; // id of weddingCertificate 1
+        uint256 certificateIdP2;  // id of weddingCertificate 2
+        bool divorceVote1; // for 2 out of 3 burn mechanism
         bool divorceVote2;
         bool divorceVote3;
     }
 
     struct GuestList {
         address[] guests;
-        bool[] votes;
-        bool partner1Confirmed;
+        bool[] votes; // every guest gets one vote to indicate if they're opposed to the wedding
+        bool partner1Confirmed; // both partners need to confirm
         bool partner2Confirmed;
     }
 
+    // mapping used to indicate a user's preference
+    // both used for both engagement preferences and saying yes to marriage
+    // for example, if user A wants to engage to user B, the mapping will include A -> B
+    // if the mapping also includes B -> A, we know they both want to engage eachother and thus engage them
+    // for marriage, we A -> B means A said 'yes' to B
     mapping(address => address) private preferences;
 
+    // We want to have a shared engagement object between the two partners and not both have a single once
+    // To accomplish this, we generate a common key K based on both their addresses
+    // userToKey then includes A -> K and B -> K
+    // the engagements mapping then includes K -> shared engagement object
     mapping(address => bytes32) private userToKey;
     mapping(bytes32 => Engagement) private engagements;    
 
     WeddingCertificate private weddingCertificate;
-    uint256 private nextCertificateId = 1;
+    uint256 private nextCertificateId = 1; // hold counter to ensure the tokenID is unique in this contract
 
+    // When deploying, these are the last 4 addresses (easy to test stuff)
     address[] private authorizedAddresses = [
         0xdD870fA1b7C4700F2BD7f44238821C26f7392148,
         0x583031D1113aD414F02576BD6afaBfb302140225,
@@ -48,20 +59,18 @@ contract WeddingContract {
     function generateEngagementKey(address p1, address p2)
         private pure returns (bytes32)
     {
+        // We sort the addresses so the common key K is the same, even if the parameters are swapped
         address first = p1 < p2 ? p1 : p2;
         address second = p1 > p2 ? p1 : p2;
         return keccak256(abi.encodePacked(first, second));
     }
 
-    function encrypt(string memory data) 
-        private pure returns (string memory) 
-    {
-        return data;
-    }
-
+    // Helper function to clear the information after an engagement / marriage is cancelled
     function cleanupEngagementObject(Engagement storage engagement)
         private
     {
+        // Set everything to the defaults
+
         // Remove key from userToKey
         userToKey[engagement.partner1] = bytes32(0);
         userToKey[engagement.partner2] = bytes32(0);
@@ -178,6 +187,7 @@ contract WeddingContract {
                 weddingDate: weddingDate,
                 isEngaged: true,
                 isMarried: false, 
+                // All the following are just defaults
                 guestList: GuestList({
                     guests: new address[](0),
                     votes: new bool[](0),
@@ -238,7 +248,7 @@ contract WeddingContract {
             require(!isInGuestList, "One of the partners is in the guest list");
 
             engagement.guestList.guests = guests;
-            engagement.guestList.votes = new bool[](guests.length);
+            engagement.guestList.votes = new bool[](guests.length); // give them each a vote (default false)
 
             // List changed, so reset confirmations
             engagement.guestList.partner1Confirmed = false;
@@ -293,8 +303,6 @@ contract WeddingContract {
     }
 
     //////// 4. Wedding ////////
-    // TODO: What if they haven't said yes on the wedding date ??
-    // |-> Do we need to discard the wedding somehow (clear the engagement)??
     function marry()
         public 
         isEngaged(msg.sender) 
@@ -366,6 +374,7 @@ contract WeddingContract {
         }
 
         // Check that you're trying to marry the person you're engaged with
+        // Also instantly set the correct divorceVote to true
         Engagement storage engagement = engagements[userToKey[partner]];
         if (engagement.partner1 == msg.sender) {
             require(engagement.partner2 == partner, "You have to be married to the person you want to divorce");
@@ -419,7 +428,7 @@ contract WeddingContract {
         }
 
         // If more than half vote in favor, disband engagement
-        // (not the marriage as they didn't get married yet)
+        // (not the marriage certificates as they didn't get married yet)
         if (voteCount > engagement.guestList.guests.length / 2) {
             cleanupEngagementObject(engagement);
         }

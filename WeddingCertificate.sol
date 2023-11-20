@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 contract WeddingCertificate is ERC721 {
 
+    // some information we want to store in the NFT
     struct CertificateDetails {
         address partner1;
         address partner2;
@@ -20,6 +21,7 @@ contract WeddingCertificate is ERC721 {
     {
         _mint(to, tokenId);
 
+        // set details
         certificateDetails[tokenId] = CertificateDetails({
             partner1: partner1,
             partner2: partner2,
@@ -29,8 +31,9 @@ contract WeddingCertificate is ERC721 {
 
     function burnCertificate(uint256 tokenId) public {
         _burn(tokenId);
-        delete certificateDetails[tokenId];
+
         // Clean up information
+        delete certificateDetails[tokenId];
     }
 
     // Override transfer functions to disable it
